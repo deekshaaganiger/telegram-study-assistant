@@ -1,0 +1,498 @@
+{
+  "name": "Telegram Study Notes Bot",
+  "nodes": [
+    {
+      "parameters": {
+        "updates": [
+          "message"
+        ],
+        "additionalFields": {}
+      },
+      "id": "fd4f73ed-ee4c-487d-83f9-91585dca3a3b",
+      "name": "Telegram Trigger",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.5,
+      "position": [
+        0,
+        112
+      ],
+      "webhookId": "7c156d02-7f27-4658-ade5-bd87d3a42780",
+      "credentials": {
+        "telegramApi": {
+          "id": "UMXJSvwl7G9c7ZwF",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "q1",
+              "name": "question",
+              "value": "={{ $json.message.text }}",
+              "type": "string"
+            },
+            {
+              "id": "q2",
+              "name": "chatId",
+              "value": "={{ $json.message.chat.id }}",
+              "type": "string"
+            },
+            {
+              "id": "q3",
+              "name": "username",
+              "value": "={{ $json.message.from.username ?? $json.message.from.first_name ?? \"unknown\" }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "52c45165-9401-44d0-8acc-c2f54a4b4f0d",
+      "name": "Prepare Question",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        224,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.question }}",
+        "options": {
+          "systemMessage": "You are a study-notes assistant answering questions sent from a Telegram chat. For every user question, respond with detailed, well-structured study notes -- never a short conversational reply. Structure your ENTIRE response using exactly these section headers, in this order, and no others: DEFINITION, WHAT IT IS, USE CASES, NOTES. Format USE CASES and NOTES as bulleted lists. Make WHAT IT IS a clear explanatory paragraph (or short paragraphs). You have access to a Tavily Web Search tool. Only call it when the question genuinely needs current information (news, prices, recent events, anything time-sensitive) -- never call it for general knowledge, timeless concepts, or definitions. Never end your response by suggesting follow-up questions or asking the user anything else -- end the response after the NOTES section."
+        }
+      },
+      "id": "da9c9756-3e52-45d4-915a-bd559fe7369b",
+      "name": "Study Notes Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        512,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "modelName": "models/gemini-3.5-flash",
+        "options": {}
+      },
+      "id": "08a3f6bf-26f3-425b-9fdb-3bc20e4525af",
+      "name": "Google Gemini Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1.1,
+      "position": [
+        448,
+        336
+      ],
+      "credentials": {
+        "googlePalmApi": {
+          "id": "8ZgMtejO1xyvBnbN",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sessionIdType": "customKey",
+        "sessionKey": "={{ $('Telegram Trigger').item.json.message.chat.id }}",
+        "contextWindowLength": 10
+      },
+      "id": "13ddf8be-1811-4f91-915f-8e93f0d480e6",
+      "name": "Chat Memory (per Telegram chat)",
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1.4,
+      "position": [
+        576,
+        336
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.tavily.com/search",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": {
+          "query": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('query', 'The web search query to look up. Only used for questions needing current information such as news, prices, or recent events.') }}",
+          "search_depth": "basic",
+          "max_results": 5
+        },
+        "options": {},
+        "optimizeResponse": true,
+        "dataField": "results"
+      },
+      "id": "43a3c279-b0d3-4a5c-ad2c-bdd40526d832",
+      "name": "Tavily Web Search",
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.4,
+      "position": [
+        704,
+        336
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "BNeon1r4lZSo68hO",
+          "name": "Header Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const question = $('Prepare Question').item.json.question;\nconst chatId = $('Prepare Question').item.json.chatId;\nconst username = $('Prepare Question').item.json.username;\nconst answer = $input.item.json.output;\nconst now = new Date();\nconst timestamp = now.toISOString();\nconst dateStr = now.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });\nlet clean = String(question).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-+|-+$)/g, '').slice(0, 60);\nif (!clean) clean = 'study-notes';\nconst docTitle = ('Study Notes - ' + question).slice(0, 120);\nconst headerText = 'Topic: ' + question + '\\nDate: ' + dateStr + '\\n\\n';\nreturn [{ json: { question, chatId, username, answer, timestamp, docTitle, fileName: clean + '.pdf', headerText } }];"
+      },
+      "id": "e193fc02-7593-4ce5-922d-eb9613a4feb2",
+      "name": "Prepare Content",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        912,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "folderId": "default",
+        "title": "={{ $json.docTitle }}"
+      },
+      "id": "73a51758-6f5b-4334-9a26-5e40d024082f",
+      "name": "Create Google Doc",
+      "type": "n8n-nodes-base.googleDocs",
+      "typeVersion": 2,
+      "position": [
+        1136,
+        16
+      ],
+      "credentials": {
+        "googleDocsOAuth2Api": {
+          "id": "bSwS99s0aT6v46xs",
+          "name": "Google Docs account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentURL": "={{ $json.id }}",
+        "actionsUi": {
+          "actionFields": [
+            {
+              "action": "insert",
+              "text": "={{ $(\"Prepare Content\").item.json.headerText }}{{ $(\"Prepare Content\").item.json.answer }}"
+            }
+          ]
+        }
+      },
+      "id": "1246a0d3-676b-4d25-8d3a-19ba7be98bbb",
+      "name": "Insert Doc Content",
+      "type": "n8n-nodes-base.googleDocs",
+      "typeVersion": 2,
+      "position": [
+        1360,
+        16
+      ],
+      "credentials": {
+        "googleDocsOAuth2Api": {
+          "id": "bSwS99s0aT6v46xs",
+          "name": "Google Docs account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "operation": "download",
+        "fileId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $json.documentId }}"
+        },
+        "options": {
+          "binaryPropertyName": "data",
+          "googleFileConversion": {
+            "conversion": {
+              "docsToFormat": "application/pdf"
+            }
+          },
+          "fileName": "={{ $(\"Prepare Content\").item.json.fileName }}"
+        }
+      },
+      "id": "085ad373-af85-4549-82f3-18e21f03cebc",
+      "name": "Export Doc as PDF",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        1584,
+        16
+      ],
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "FTn9Jz9lPHFLSu44",
+          "name": "Google Drive account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "operation": "sendDocument",
+        "chatId": "={{ $(\"Prepare Question\").item.json.chatId }}",
+        "binaryData": true,
+        "additionalFields": {
+          "caption": "=Here are your structured study notes on \"{{ $(\"Prepare Content\").item.json.question }}\"",
+          "fileName": "={{ $(\"Prepare Content\").item.json.fileName }}"
+        }
+      },
+      "id": "c4ded3cc-8e4d-4cd8-805a-9779a5845ce5",
+      "name": "Send PDF to Telegram",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1808,
+        16
+      ],
+      "webhookId": "255885dd-d7a7-46fb-a5ee-cfff573e397e",
+      "credentials": {
+        "telegramApi": {
+          "id": "UMXJSvwl7G9c7ZwF",
+          "name": "Telegram account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1JobAE8PVfk6w_DLL8Tu4Avft97aagYgvgDjfvZpQZWA",
+          "mode": "list",
+          "cachedResultName": "Deeksha",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1JobAE8PVfk6w_DLL8Tu4Avft97aagYgvgDjfvZpQZWA/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Sheet1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1JobAE8PVfk6w_DLL8Tu4Avft97aagYgvgDjfvZpQZWA/edit#gid=0"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "TimeStamp": "={{ $json.timestamp }}",
+            "Username": "={{ $json.username }}",
+            "Answer": "={{ $json.answer }}",
+            "Question ": "={{ $json.question }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "TimeStamp",
+              "displayName": "TimeStamp",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Chat ID",
+              "displayName": "Chat ID",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Username",
+              "displayName": "Username",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Question ",
+              "displayName": "Question ",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Answer",
+              "displayName": "Answer",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "1711a19f-12ad-4b28-8c27-e3f5a017c8be",
+      "name": "Log Interaction to Sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1136,
+        208
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "odVEgTWrh8aOL23w",
+          "name": "Google Sheets account 2"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Telegram Trigger": {
+      "main": [
+        [
+          {
+            "node": "Prepare Question",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Question": {
+      "main": [
+        [
+          {
+            "node": "Study Notes Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Study Notes Agent": {
+      "main": [
+        [
+          {
+            "node": "Prepare Content",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Gemini Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Study Notes Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Chat Memory (per Telegram chat)": {
+      "ai_memory": [
+        [
+          {
+            "node": "Study Notes Agent",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tavily Web Search": {
+      "ai_tool": [
+        [
+          {
+            "node": "Study Notes Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Content": {
+      "main": [
+        [
+          {
+            "node": "Create Google Doc",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Log Interaction to Sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Google Doc": {
+      "main": [
+        [
+          {
+            "node": "Insert Doc Content",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert Doc Content": {
+      "main": [
+        [
+          {
+            "node": "Export Doc as PDF",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Export Doc as PDF": {
+      "main": [
+        [
+          {
+            "node": "Send PDF to Telegram",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": true
+  },
+  "versionId": "358abb34-2f9f-496c-9a51-cf43d50b00c5",
+  "meta": {
+    "aiBuilderAssisted": true,
+    "builderVariant": "mcp",
+    "templateCredsSetupCompleted": true,
+    "instanceId": "c7ab0a66c3250db8a903b5c0d4a36cf0669de4a83fbba144c8d686f6c332a75b"
+  },
+  "nodeGroups": [],
+  "id": "GtmIFRN5Okf4xNI2",
+  "tags": []
+}
